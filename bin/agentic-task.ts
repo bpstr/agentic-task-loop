@@ -2,21 +2,31 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Orchestrator } from "../runtime/orchestrator.js";
-import type { ProviderName, RunOptions } from "../runtime/types.js";
+import type { ClarificationMode, ProviderName, RunOptions } from "../runtime/types.js";
 
 interface ParsedArguments extends RunOptions {
   request: string;
 }
 
 function usage(): string {
-  return `Usage: agentic-task [options] <task or ticket>\n\nOptions:\n  --provider auto|codex|claude   Provider selection (default: auto)\n  --policy default|strict|autonomous\n  --approve <action>             Pre-authorize a policy-gated action; repeatable\n  --resume <run-id>              Resume a durable run\n  --post-jira                    Post the final summary when policy and approval allow\n  --cwd <path>                   Repository root (default: current directory)\n  --dry-run                      Show discovered capabilities and exit\n  --help                         Show this help\n`;
+  return `Usage: agentic-task [options] <task or ticket>\n\nOptions:\n  --provider auto|codex|claude   Provider selection (default: auto)\n  --policy default|strict|autonomous\n  --clarification auto|human     Resolve requirement gaps automatically or pause for answers\n  --answer <issue-id>=<answer>   Answer a clarification issue while resuming; repeatable\n  --approve <action>             Pre-authorize a policy-gated action; repeatable\n  --resume <run-id>              Resume a durable run\n  --post-jira                    Post the final summary when policy and approval allow\n  --cwd <path>                   Repository root (default: current directory)\n  --dry-run                      Show discovered capabilities and exit\n  --help                         Show this help\n`;
+}
+
+function parseAnswer(value: string): [string, string] {
+  const separator = value.indexOf("=");
+  if (separator <= 0 || separator === value.length - 1) {
+    throw new Error("--answer requires <issue-id>=<answer>");
+  }
+  return [value.slice(0, separator).trim(), value.slice(separator + 1).trim()];
 }
 
 function parseArguments(argv: string[]): ParsedArguments {
   const approvals = new Set<string>();
+  const clarificationAnswers: Record<string, string> = {};
   const request: string[] = [];
   let provider: ProviderName | "auto" = "auto";
   let policyName = "default";
+  let clarificationMode: ClarificationMode | undefined;
   let cwd = process.cwd();
   let resumeRunId: string | undefined;
   let dryRun = false;
@@ -33,6 +43,15 @@ function parseArguments(argv: string[]): ParsedArguments {
       provider = value;
     } else if (argument === "--policy") {
       policyName = argv[++index] ?? "";
+    } else if (argument === "--clarification") {
+      const value = argv[++index];
+      if (value !== "auto" && value !== "human") throw new Error(`Invalid clarification mode: ${value ?? "missing"}`);
+      clarificationMode = value;
+    } else if (argument === "--answer") {
+      const value = argv[++index];
+      if (!value) throw new Error("--answer requires <issue-id>=<answer>");
+      const [id, answer] = parseAnswer(value);
+      clarificationAnswers[id] = answer;
     } else if (argument === "--approve") {
       const action = argv[++index];
       if (!action) throw new Error("--approve requires an action");
@@ -62,6 +81,8 @@ function parseArguments(argv: string[]): ParsedArguments {
     policyName,
     approvals,
     ...(resumeRunId ? { resumeRunId } : {}),
+    ...(clarificationMode ? { clarificationMode } : {}),
+    ...(Object.keys(clarificationAnswers).length ? { clarificationAnswers } : {}),
     dryRun,
     postJira,
   };
@@ -79,8 +100,9 @@ async function main(): Promise<void> {
     return;
   }
   const result = await orchestrator.run(args.request);
-  process.stdout.write(`${JSON.stringify({ runId: result.state.runId, phase: result.state.phase, report: result.report }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ runId: result.state.runId, phase: result.state.phase, report: result.report, clarification: result.clarification }, null, 2)}\n`);
   if (result.state.phase === "blocked") process.exitCode = 2;
+  if (result.state.phase === "awaiting_clarification") process.exitCode = 3;
 }
 
 main().catch((error: unknown) => {
