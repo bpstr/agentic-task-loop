@@ -1,6 +1,6 @@
 # Agentic Task Loop
 
-Agentic Task Loop is a provider-neutral orchestration runtime for autonomous software-development tasks. It runs Codex or Claude inside deterministic lifecycle stages, persists evidence after every gate, enforces policy and retry budgets, validates changes with real commands, isolates parallel workers, and produces a resumable audit trail.
+Agentic Task Loop is a provider-neutral orchestration runtime for autonomous software-development tasks. It runs Codex or Claude inside deterministic lifecycle stages, persists evidence after every gate, reconciles requirements before planning, enforces policy and retry budgets, validates changes with real commands, isolates parallel workers, and produces a resumable audit trail.
 
 The central rule is:
 
@@ -25,31 +25,38 @@ Requirements analyst
     ▼
 Repository + MCP investigation
     ▼
-Planner → plan critic
-    ▼
-Approved workstreams
+Clarification gate
     │
-    ├── worker A → isolated git worktree
-    ├── worker B → isolated git worktree
-    └── worker C → isolated git worktree
-    │
-    ▼
-Ownership check + patch integration
-    ▼
-Deterministic validation
-    │
-    ├── failed → diagnosis → remediation → validation
-    └── passed
-           ▼
-       deep review
-           │
-           ├── P0 → blocked
-           ├── P1 → remediation
-           └── clear / P2
-                  ▼
-            final verification
-                  ▼
-               finalize
+    ├── clear / evidence-resolved ───────────────┐
+    ├── human mode → awaiting clarification      │
+    └── auto unresolved blocker → blocked        │
+                                                 ▼
+                                      Planner → plan critic
+                                                 ▼
+                                      Approved workstreams
+                              ┌──────────────────┼──────────────────┐
+                              ▼                  ▼                  ▼
+                         worker A           worker B           worker C
+                         worktree A         worktree B         worktree C
+                              └──────────────────┼──────────────────┘
+                                                 ▼
+                                  Ownership check + patch integration
+                                                 ▼
+                                      Deterministic validation
+                                                 │
+                              failed → diagnosis → remediation → validation
+                                                 │
+                                               passed
+                                                 ▼
+                                            deep review
+                                                 │
+                              P0 → blocked · P1 → remediation
+                                                 │
+                                            clear / P2
+                                                 ▼
+                                        final verification
+                                                 ▼
+                                              finalize
 ```
 
 ## What is implemented
@@ -58,6 +65,7 @@ Deterministic validation
 | --- | --- |
 | State machine | Allows only explicit lifecycle transitions and bounded retry paths |
 | Checkpoint store | Persists run state and stage artifacts under `.agentic/runs/` |
+| Clarification gate | Maps requirements, detects ambiguity/conflicts, and prevents planning against unresolved blocking questions |
 | Operation journal state | Detects interrupted writable stages before unsafe replay |
 | Policy engine | Enforces actions, approvals, safe validation commands, and budgets |
 | Schema registry | Validates model output with JSON Schema and Ajv |
@@ -66,8 +74,8 @@ Deterministic validation
 | Worktree manager | Gives parallel workers isolated Git worktrees and enforces actual file ownership |
 | Check runner | Executes deterministic validation without a shell |
 | Provider adapters | Runs Codex or Claude with structured output contracts |
-| Specialist agents | Separate requirements, investigation, planning, implementation, remediation, review, verification, and finalization |
-| Evals + tests | Exercise lifecycle paths, policy bypasses, capability parsing, resume, and worktree isolation |
+| Specialist agents | Separate requirements, investigation, clarification, planning, implementation, remediation, review, verification, and finalization |
+| Evals + tests | Exercise lifecycle paths, clarification, policy bypasses, capability parsing, resume, and worktree isolation |
 
 ## Install
 
@@ -101,6 +109,8 @@ claude plugin install agentic-task-loop@agentic-task-loop
 
 ## Use
 
+Automatic clarification is the default behavior:
+
 ```bash
 agentic-task "Implement notification preferences"
 agentic-task PROJ-142
@@ -108,13 +118,30 @@ agentic-task --provider claude --policy strict "Fix checkout retries"
 agentic-task --provider codex --policy autonomous "Add audit logging"
 ```
 
+Require a human decision before planning whenever a blocking question cannot be established from evidence:
+
+```bash
+agentic-task --clarification human "Add data export"
+```
+
+A paused run returns `phase: "awaiting_clarification"` and the structured clarification artifact. Resume it with stable issue IDs:
+
+```bash
+agentic-task \
+  --resume ATL-20260901-a1b2c3d4 \
+  --answer 'Q-1=CSV' \
+  --answer 'Q-2=Keep the existing public API'
+```
+
+Answers are persisted and can be accumulated across multiple clarification rounds.
+
 Inspect what the runtime can use without starting a task:
 
 ```bash
 agentic-task --dry-run --provider auto
 ```
 
-Resume an interrupted run:
+Resume any other interrupted run:
 
 ```bash
 agentic-task --resume ATL-20260901-a1b2c3d4
@@ -128,6 +155,56 @@ $agentic-task implement notification preferences
 
 Claude Code can invoke the equivalent packaged skill.
 
+## Clarification before planning
+
+Investigation intentionally does **not** flow directly into planning. The clarification specialist first reconciles:
+
+- normalized task requirements and acceptance criteria;
+- information discovered from repository code, tests, history, and instructions;
+- authoritative information available through inherited MCP tools;
+- architecture and compatibility constraints;
+- previous clarification decisions and human answers.
+
+The resulting `clarification.json` is a structured requirement contract. Each requirement is classified as:
+
+```text
+clear
+ambiguous
+conflicting
+missing
+```
+
+Clarification issues record:
+
+- stable issue ID;
+- question / conflict / assumption / missing-information type;
+- whether it blocks planning;
+- supporting evidence;
+- candidate options;
+- an optional resolution with source, rationale, and confidence.
+
+Resolution sources are explicit:
+
+```text
+evidence
+policy
+human
+```
+
+### Auto mode
+
+`--clarification auto` allows the clarifier to resolve implementation questions only when repository/MCP evidence or policy clearly supports the resolution. It must not invent product behavior, security tradeoffs, compatibility promises, destructive behavior, or public API semantics.
+
+If a blocking issue remains unresolved, the deterministic runtime transitions to `blocked` rather than letting the planner guess.
+
+### Human mode
+
+`--clarification human` still resolves objectively answerable questions from evidence, but genuine decision-dependent blockers cause a durable `awaiting_clarification` pause.
+
+Human answers are stored separately in `clarification-answers.json`, supplied back into the clarifier on resume, and deterministically overlaid onto the matching stable issue IDs as human resolutions.
+
+Planning, plan review, and final verification all receive the completed clarification contract. Resolved decisions therefore remain traceable through implementation instead of disappearing into conversational context.
+
 ## MCP tools are inherited automatically
 
 You should not configure Jira, Atlassian, Linear, GitHub, documentation servers, code-intelligence MCPs, or other MCP servers a second time for Agentic Task Loop.
@@ -135,8 +212,6 @@ You should not configure Jira, Atlassian, Linear, GitHub, documentation servers,
 The runtime discovers the tools already configured for the selected provider:
 
 ### Codex
-
-Agentic Task Loop reads the normal Codex MCP configuration and also asks the Codex CLI for its configured servers.
 
 Typical sources:
 
@@ -149,8 +224,6 @@ codex mcp list
 
 ### Claude Code
 
-Agentic Task Loop discovers the user/project MCP configuration already available to Claude Code.
-
 Typical sources:
 
 ```text
@@ -161,7 +234,7 @@ claude mcp list
 
 Discovered tools are attached to the matching provider as capabilities. The provider continues to own authentication, OAuth sessions, secrets, and the actual MCP connection. Agentic Task Loop does not copy credentials.
 
-For example, if Jira/Atlassian is already configured in Codex and the task is `PROJ-142`, the requirements analyst can use that MCP directly to read the authoritative ticket. No `.agentic/capabilities.json` entry is required.
+For example, if Jira/Atlassian is already configured in Codex and the task is `PROJ-142`, the requirements analyst, investigator, and clarifier can use that MCP directly to read authoritative task context. No `.agentic/capabilities.json` entry is required.
 
 `--provider auto` also considers discovered tools. For ticket-like tasks it prefers an available provider that already exposes a matching issue-tracker MCP.
 
@@ -188,7 +261,10 @@ See [`skills/agentic-task/references/integrations.md`](skills/agentic-task/refer
 INTAKE
   → CONTEXT
   → INVESTIGATION
-  → PLAN
+  → CLARIFICATION
+      ├── ready → PLAN
+      ├── human needed → AWAITING_CLARIFICATION → CLARIFICATION
+      └── auto unresolved → BLOCKED
   → PLAN_REVIEW
   → IMPLEMENTATION
   → VALIDATION
@@ -233,6 +309,8 @@ Every run creates a directory similar to:
 ├── state.json
 ├── task.json
 ├── context.json
+├── clarification.json
+├── clarification-answers.json      # when supplied
 ├── plan.json
 ├── plan-review.json
 ├── implementation.json
@@ -246,7 +324,7 @@ Every run creates a directory similar to:
 └── final.md
 ```
 
-Completed phases are not replayed on resume.
+Completed phases are not replayed on resume. `awaiting_clarification` is also resumable and is not treated as a failed run.
 
 Writable implementation/remediation stages additionally persist an active-operation marker before edits start. If a process dies after changing the repository but before completing the stage, resume compares the current working tree with the recorded baseline. Unexpected changes block the run for inspection instead of blindly invoking the writer again.
 
@@ -302,6 +380,8 @@ npm run check
 Key regression coverage includes:
 
 - deterministic transitions and retry limits;
+- auto clarification success and unresolved blocking behavior;
+- durable human clarification pause/resume;
 - durable phase resume;
 - command-policy bypass attempts;
 - provider MCP discovery parsing;
@@ -324,4 +404,4 @@ deterministic runtime gate
 next stage
 ```
 
-Agents can investigate deeply, use the tools already available to them, write code in authorized stages, diagnose failures, and review changes. They cannot redefine the workflow, silently expand authority, convert failed checks into passes, or bypass policy by emitting prose.
+Agents can investigate deeply, reconcile requirements, use the tools already available to them, write code in authorized stages, diagnose failures, and review changes. They cannot redefine the workflow, silently expand authority, convert failed checks into passes, plan through unresolved blocking ambiguity, or bypass policy by emitting prose.
