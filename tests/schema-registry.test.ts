@@ -14,10 +14,20 @@ test("validates structured task output", async () => {
   await assert.rejects(() => schemas.validate("task", { title: "missing fields" }), SchemaValidationError);
 });
 
+test("validates structured clarification output", async () => {
+  const schemas = new SchemaRegistry(path.join(pluginRoot, "schemas"));
+  const clarification = {
+    summary: "One question remains",
+    requirements: [{ id: "REQ-1", statement: "Export data", status: "ambiguous", evidence: ["task"], issueIds: ["Q-1"] }],
+    issues: [{ id: "Q-1", kind: "question", statement: "Which format?", blocking: true, evidence: [], options: ["CSV", "JSON"] }],
+  };
+  assert.deepEqual(await schemas.validate("clarification", clarification), clarification);
+});
+
 test("compiles every bundled schema", async () => {
   const directory = path.join(pluginRoot, "schemas");
   const schemas = new SchemaRegistry(directory);
   const names = (await readdir(directory)).filter((filename) => filename.endsWith(".schema.json")).map((filename) => filename.replace(".schema.json", ""));
   for (const name of names) await schemas.validator(name);
-  assert.equal(names.length, 10);
+  assert.equal(names.length, 11);
 });
