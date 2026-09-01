@@ -52,6 +52,10 @@ function queueCompletion(provider: MockProvider, task: Task, planSummary = "Upda
     });
 }
 
+async function persistedClarification(cwd: string, runId: string): Promise<ClarificationResult> {
+  return JSON.parse(await readFile(path.join(cwd, ".agentic", "runs", runId, "clarification.json"), "utf8")) as ClarificationResult;
+}
+
 test("runs a schema-validated task through clarification to completion", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "agentic-task-test-"));
   const task: Task = { id: "TASK-1", source: "plain", title: "Document behavior", description: "Document behavior", acceptanceCriteria: ["Documentation exists"], constraints: [] };
@@ -69,7 +73,7 @@ test("runs a schema-validated task through clarification to completion", async (
   const result = await orchestrator.run("Document behavior");
   assert.equal(result.state.phase, "completed");
   assert.equal(result.report?.status, "complete");
-  assert.equal(result.clarification?.issues.length, 0);
+  assert.equal((await persistedClarification(cwd, result.state.runId)).issues.length, 0);
   const persisted = JSON.parse(await readFile(path.join(cwd, ".agentic", "runs", result.state.runId, "state.json"), "utf8")) as { phase: string };
   assert.equal(persisted.phase, "completed");
 });
@@ -134,8 +138,9 @@ test("human clarification pauses durably and resumes with explicit answers", asy
   }, { provider }).run();
 
   assert.equal(resumed.state.phase, "completed");
-  assert.equal(resumed.clarification?.issues[0]?.resolution?.source, "human");
-  assert.equal(resumed.clarification?.issues[0]?.resolution?.value, "CSV");
+  const clarification = await persistedClarification(cwd, resumed.state.runId);
+  assert.equal(clarification.issues[0]?.resolution?.source, "human");
+  assert.equal(clarification.issues[0]?.resolution?.value, "CSV");
 });
 
 test("resumes from the persisted plan phase without replaying completed stages", async () => {
