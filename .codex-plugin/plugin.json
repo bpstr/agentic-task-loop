@@ -1,0 +1,35 @@
+{
+  "name": "agentic-task-loop",
+  "version": "0.2.0",
+  "description": "Run software-development tasks through a deterministic, persistent, policy-controlled agent orchestration runtime.",
+  "author": {
+    "name": "bpstr",
+    "url": "https://github.com/bpstr"
+  },
+  "homepage": "https://github.com/bpstr/agentic-task-loop",
+  "repository": "https://github.com/bpstr/agentic-task-loop",
+  "keywords": [
+    "agentic-development",
+    "software-engineering",
+    "testing",
+    "code-review",
+    "workflow"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Agentic Task Loop",
+    "shortDescription": "Run a bounded engineering workflow",
+    "longDescription": "Orchestrate specialized planning and implementation agents inside a deterministic state machine with durable checkpoints, policy gates, schema-validated evidence, test execution, remediation, and independent review.",
+    "developerName": "bpstr",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Implement this task with $agentic-task.",
+      "Use $agentic-task to fix this bug end to end.",
+      "Run $agentic-task for this Jira issue."
+    ]
+  }
+}

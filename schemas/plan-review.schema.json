@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-task-loop.local/schemas/plan-review.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["decision", "issues"],
+  "properties": {
+    "decision": { "enum": ["approve", "revise"] },
+    "issues": { "type": "array", "items": { "type": "string" } }
+  }
+}

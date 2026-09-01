@@ -1,0 +1,5 @@
+interface:
+  display_name: "Verify Task"
+  short_description: "Evaluate tests, review, and acceptance criteria"
+policy:
+  allow_implicit_invocation: false

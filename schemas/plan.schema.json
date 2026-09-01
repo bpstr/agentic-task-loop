@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-task-loop.local/schemas/plan.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "steps", "workstreams", "checks", "risks", "acceptanceCriteriaCoverage"],
+  "properties": {
+    "summary": { "type": "string", "minLength": 1 },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "files", "acceptanceCriteria"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "title": { "type": "string", "minLength": 1 },
+          "files": { "type": "array", "items": { "type": "string" } },
+          "acceptanceCriteria": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "workstreams": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "files", "stepIds"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "files": { "type": "array", "items": { "type": "string" } },
+          "stepIds": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "command", "args"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "command": { "type": "string", "pattern": "^[A-Za-z0-9_./-]+$" },
+          "args": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "risks": { "type": "array", "items": { "type": "string" } },
+    "acceptanceCriteriaCoverage": {
+      "type": "object",
+      "additionalProperties": { "type": "array", "items": { "type": "string" } }
+    }
+  }
+}

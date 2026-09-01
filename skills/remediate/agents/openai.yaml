@@ -1,0 +1,5 @@
+interface:
+  display_name: "Remediate Failure"
+  short_description: "Diagnose and correct evidence-backed failures"
+policy:
+  allow_implicit_invocation: false

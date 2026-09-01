@@ -1,0 +1,5 @@
+interface:
+  display_name: "Investigate Task"
+  short_description: "Build evidence for an active task loop"
+policy:
+  allow_implicit_invocation: false

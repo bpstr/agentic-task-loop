@@ -1,0 +1,26 @@
+name: strict
+budgets:
+  maxImplementationIterations: 2
+  maxReviewCycles: 1
+  maxPlanRevisions: 1
+  maxToolCalls: 75
+actions:
+  repository.read: allow
+  repository.write: approve
+  test.run: allow
+  review.run: allow
+  dependency.install: deny
+  migration.create: approve
+  git.commit: deny
+  git.push: deny
+  deploy: deny
+  production.shell: deny
+  jira.read: allow
+  jira.comment: deny
+  jira.transition: deny
+  jira.close: deny
+commands:
+  allow:
+    - '^(npm|pnpm|yarn|bun) (test|run (test|lint|typecheck|build))( |$)'
+    - '^(pytest|cargo test|go test|dotnet test|composer test)( |$)'
+    - '^git (diff --check|status --short)( |$)'

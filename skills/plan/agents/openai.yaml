@@ -1,0 +1,5 @@
+interface:
+  display_name: "Plan Task"
+  short_description: "Create or critique a structured plan"
+policy:
+  allow_implicit_invocation: false

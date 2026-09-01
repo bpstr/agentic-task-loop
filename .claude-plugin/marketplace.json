@@ -1,0 +1,23 @@
+{
+  "name": "agentic-task-loop",
+  "owner": {
+    "name": "bpstr"
+  },
+  "metadata": {
+    "description": "A bounded, end-to-end software-development workflow for Claude Code and Codex."
+  },
+  "plugins": [
+    {
+      "name": "agentic-task-loop",
+      "source": "./",
+      "description": "Run a deterministic, persistent, policy-controlled software-development workflow with specialized agents.",
+      "version": "0.2.0",
+      "author": {
+        "name": "bpstr"
+      },
+      "homepage": "https://github.com/bpstr/agentic-task-loop",
+      "repository": "https://github.com/bpstr/agentic-task-loop",
+      "category": "development"
+    }
+  ]
+}

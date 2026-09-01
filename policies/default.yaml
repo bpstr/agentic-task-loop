@@ -1,0 +1,28 @@
+name: default
+budgets:
+  maxImplementationIterations: 4
+  maxReviewCycles: 2
+  maxPlanRevisions: 1
+  maxToolCalls: 150
+actions:
+  repository.read: allow
+  repository.write: allow
+  test.run: allow
+  review.run: allow
+  dependency.install: approve
+  migration.create: allow_with_warning
+  git.commit: approve
+  git.push: approve
+  deploy: deny
+  production.shell: deny
+  jira.read: allow
+  jira.comment: approve
+  jira.transition: approve
+  jira.close: deny
+commands:
+  allow:
+    - '^(npm|pnpm|yarn|bun)( |$)'
+    - '^(npx|composer|php|python3?|pytest|cargo|go|dotnet|mvn|gradle)( |$)'
+    - '^vendor/bin/[A-Za-z0-9._/-]+'
+    - '^\./[A-Za-z0-9._/-]+'
+    - '^git (diff --check|status --short)( |$)'

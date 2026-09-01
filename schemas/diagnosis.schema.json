@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-task-loop.local/schemas/diagnosis.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["class", "confidence", "evidence", "hypothesis", "remediable"],
+  "properties": {
+    "class": { "enum": ["IMPLEMENTATION_DEFECT", "TEST_DEFECT", "ENVIRONMENT_FAILURE", "DEPENDENCY_FAILURE", "FLAKY_TEST", "REQUIREMENT_AMBIGUITY", "ARCHITECTURAL_BLOCKER"] },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "evidence": { "type": "string", "minLength": 1 },
+    "hypothesis": { "type": "string", "minLength": 1 },
+    "remediable": { "type": "boolean" }
+  }
+}

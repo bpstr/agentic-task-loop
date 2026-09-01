@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-task-loop.local/schemas/run-state.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["runId", "taskId", "phase", "provider", "iteration", "reviewCycle", "planRevision", "toolCalls", "changedFiles", "checks", "review", "budget", "createdAt", "updatedAt"],
+  "properties": {
+    "runId": { "type": "string", "pattern": "^ATL-[A-Za-z0-9-]+$" },
+    "taskId": { "type": "string", "minLength": 1 },
+    "phase": { "enum": ["intake", "context", "investigation", "plan", "plan_review", "implementation", "validation", "diagnosis", "remediation", "deep_review", "final_verification", "finalize", "blocked", "completed"] },
+    "provider": { "enum": ["codex", "claude", "mock"] },
+    "iteration": { "type": "integer", "minimum": 0 },
+    "reviewCycle": { "type": "integer", "minimum": 0 },
+    "planRevision": { "type": "integer", "minimum": 0 },
+    "toolCalls": { "type": "integer", "minimum": 0 },
+    "changedFiles": { "type": "array", "items": { "type": "string" } },
+    "checks": { "type": "object", "additionalProperties": { "enum": ["pending", "passed", "failed", "blocked"] } },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blocking", "nonBlocking"],
+      "properties": {
+        "blocking": { "type": "integer", "minimum": 0 },
+        "nonBlocking": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxImplementationIterations", "maxReviewCycles", "maxPlanRevisions", "maxToolCalls"],
+      "properties": {
+        "maxImplementationIterations": { "type": "integer", "minimum": 1 },
+        "maxReviewCycles": { "type": "integer", "minimum": 0 },
+        "maxPlanRevisions": { "type": "integer", "minimum": 0 },
+        "maxToolCalls": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "blockedReason": { "type": "string", "minLength": 1 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  }
+}

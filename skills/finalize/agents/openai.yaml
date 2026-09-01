@@ -1,0 +1,5 @@
+interface:
+  display_name: "Finalize Task"
+  short_description: "Produce an evidence-backed human handoff"
+policy:
+  allow_implicit_invocation: false

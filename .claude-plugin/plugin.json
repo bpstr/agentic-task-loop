@@ -1,0 +1,17 @@
+{
+  "name": "agentic-task-loop",
+  "version": "0.2.0",
+  "description": "Run software-development tasks through a deterministic, persistent, policy-controlled agent orchestration runtime.",
+  "author": {
+    "name": "bpstr"
+  },
+  "homepage": "https://github.com/bpstr/agentic-task-loop",
+  "repository": "https://github.com/bpstr/agentic-task-loop",
+  "keywords": [
+    "agentic-development",
+    "software-engineering",
+    "testing",
+    "code-review",
+    "workflow"
+  ]
+}

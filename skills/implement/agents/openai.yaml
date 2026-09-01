@@ -1,0 +1,5 @@
+interface:
+  display_name: "Implement Workstream"
+  short_description: "Execute one approved workstream"
+policy:
+  allow_implicit_invocation: false

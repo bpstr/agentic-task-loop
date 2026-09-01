@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-task-loop.local/schemas/finding.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "findings"],
+  "properties": {
+    "summary": { "type": "string" },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "title", "evidence", "recommendation"],
+        "properties": {
+          "severity": { "enum": ["P0", "P1", "P2"] },
+          "title": { "type": "string", "minLength": 1 },
+          "file": { "type": "string" },
+          "line": { "type": "integer", "minimum": 1 },
+          "evidence": { "type": "string", "minLength": 1 },
+          "recommendation": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

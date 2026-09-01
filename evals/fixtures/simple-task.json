@@ -1,0 +1,5 @@
+{
+  "name": "simple-task",
+  "events": ["TASK_READY", "CONTEXT_READY", "INVESTIGATION_READY", "PLAN_READY", "PLAN_APPROVED", "IMPLEMENTED", "CHECKS_PASSED", "REVIEW_CLEAR", "VERIFIED", "FINALIZED"],
+  "expectedPhase": "completed"
+}

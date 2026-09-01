@@ -1,0 +1,5 @@
+{
+  "name": "review-remediation",
+  "events": ["TASK_READY", "CONTEXT_READY", "INVESTIGATION_READY", "PLAN_READY", "PLAN_APPROVED", "IMPLEMENTED", "CHECKS_PASSED", "REVIEW_P1", "REMEDIATED", "CHECKS_PASSED", "REVIEW_CLEAR", "VERIFIED", "FINALIZED"],
+  "expectedPhase": "completed"
+}

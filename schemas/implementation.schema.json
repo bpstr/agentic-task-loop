@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-task-loop.local/schemas/implementation.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "changedFiles", "decisions"],
+  "properties": {
+    "summary": { "type": "string", "minLength": 1 },
+    "changedFiles": { "type": "array", "items": { "type": "string" } },
+    "decisions": { "type": "array", "items": { "type": "string" } }
+  }
+}

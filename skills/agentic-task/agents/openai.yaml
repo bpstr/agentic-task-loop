@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agentic Task"
+  short_description: "Run a bounded development task loop"
+  default_prompt: "Use $agentic-task to implement this development task end to end."

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-task-loop.local/schemas/finalize.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "summary", "filesChanged", "validation", "iterations", "reviewSummary", "decisions", "remainingRisks", "humanReviewPoints"],
+  "properties": {
+    "status": { "enum": ["complete", "partial", "blocked"] },
+    "summary": { "type": "string", "minLength": 1 },
+    "filesChanged": { "type": "array", "items": { "type": "string" } },
+    "validation": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "status", "command"],
+        "properties": {
+          "name": { "type": "string" },
+          "status": { "enum": ["pending", "passed", "failed", "blocked"] },
+          "command": { "type": "string" }
+        }
+      }
+    },
+    "iterations": { "type": "integer", "minimum": 0 },
+    "reviewSummary": { "type": "string" },
+    "decisions": { "type": "array", "items": { "type": "string" } },
+    "remainingRisks": { "type": "array", "items": { "type": "string" } },
+    "humanReviewPoints": { "type": "array", "items": { "type": "string" } },
+    "jiraUpdate": { "type": "string" }
+  }
+}

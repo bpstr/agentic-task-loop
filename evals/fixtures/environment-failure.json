@@ -1,0 +1,5 @@
+{
+  "name": "environment-failure",
+  "events": ["TASK_READY", "CONTEXT_READY", "INVESTIGATION_READY", "PLAN_READY", "PLAN_APPROVED", "IMPLEMENTED", "CHECKS_FAILED", "DIAGNOSED_BLOCKED"],
+  "expectedPhase": "blocked"
+}

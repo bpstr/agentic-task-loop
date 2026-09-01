@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-task-loop.local/schemas/context.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["requirements", "acceptanceCriteria", "relevantFiles", "relevantSymbols", "architectureConstraints", "relatedTests", "unknowns", "risks", "sources"],
+  "properties": {
+    "requirements": { "type": "array", "items": { "type": "string" } },
+    "acceptanceCriteria": { "type": "array", "items": { "type": "string" } },
+    "relevantFiles": { "type": "array", "items": { "type": "string" } },
+    "relevantSymbols": { "type": "array", "items": { "type": "string" } },
+    "architectureConstraints": { "type": "array", "items": { "type": "string" } },
+    "relatedTests": { "type": "array", "items": { "type": "string" } },
+    "unknowns": { "type": "array", "items": { "type": "string" } },
+    "risks": { "type": "array", "items": { "type": "string" } },
+    "sources": { "type": "array", "items": { "type": "string" } }
+  }
+}

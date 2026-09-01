@@ -1,0 +1,40 @@
+{
+  "name": "agentic-task-loop",
+  "version": "0.2.0",
+  "description": "Deterministic, provider-neutral orchestration for agentic software-development tasks.",
+  "type": "module",
+  "bin": {
+    "agentic-task": "./dist/bin/agentic-task.js"
+  },
+  "files": [
+    "dist",
+    "agents",
+    "evals",
+    "integrations",
+    "policies",
+    "providers",
+    "runtime",
+    "schemas",
+    "skills",
+    ".codex-plugin",
+    ".claude-plugin"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "test": "npm run build && node --test dist/tests/*.test.js",
+    "eval": "npm run build && node dist/evals/run-evals.js",
+    "check": "npm run test && npm run eval"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^5.9.2"
+  }
+}

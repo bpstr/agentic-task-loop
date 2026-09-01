@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-task-loop.local/schemas/verification.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["taskSatisfied", "acceptanceCriteria", "testsPassed", "blockingFindings", "summary"],
+  "properties": {
+    "taskSatisfied": { "type": "boolean" },
+    "acceptanceCriteria": { "type": "object", "additionalProperties": { "enum": ["verified", "unverified", "not_applicable"] } },
+    "testsPassed": { "type": "boolean" },
+    "blockingFindings": { "type": "integer", "minimum": 0 },
+    "summary": { "type": "string", "minLength": 1 }
+  }
+}
