@@ -170,8 +170,8 @@ export interface RunState {
   checks: Record<string, CheckStatus>;
   review: { blocking: number; nonBlocking: number };
   budget: Budget;
-  remediationCause?: RemediationCause;
-  activeOperation?: ActiveOperation;
+  remediationCause?: RemediationCause | undefined;
+  activeOperation?: ActiveOperation | undefined;
   blockedReason?: string;
   createdAt: string;
   updatedAt: string;
