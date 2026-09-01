@@ -35,6 +35,39 @@
         "maxToolCalls": { "type": "integer", "minimum": 1 }
       }
     },
+    "remediationCause": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "artifact"],
+          "properties": {
+            "type": { "const": "validation_failure" },
+            "artifact": { "const": "diagnosis.json" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "artifact"],
+          "properties": {
+            "type": { "const": "review_findings" },
+            "artifact": { "const": "review.json" }
+          }
+        }
+      ]
+    },
+    "activeOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "phase", "startedAt", "baselineChangedFiles"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "phase": { "enum": ["implementation", "remediation"] },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "baselineChangedFiles": { "type": "array", "items": { "type": "string" } }
+      }
+    },
     "blockedReason": { "type": "string", "minLength": 1 },
     "createdAt": { "type": "string", "format": "date-time" },
     "updatedAt": { "type": "string", "format": "date-time" }
