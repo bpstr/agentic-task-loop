@@ -5,6 +5,18 @@ import type { ActionDecision, Policy } from "./types.js";
 
 export class PolicyError extends Error {}
 
+const intrinsicDeny = [
+  /^(npx|bunx)( |$)/,
+  /^(npm|pnpm|yarn|bun) (install|add|remove|uninstall|update|upgrade|publish|deploy|exec|dlx|x)( |$)/,
+  /^(npm|pnpm|yarn|bun) run (deploy|publish|release|ship|upload|migrate|migration|seed)(:| |$)/,
+  /^composer (install|update|require|remove|global)( |$)/,
+  /^php artisan (migrate|db:seed|queue:work|schedule:run|storage:link)( |$)/,
+  /^python3? (?!(-m (pytest|unittest|compileall)|--version|-V)( |$))/,
+  /^git (push|commit|reset|clean|checkout|switch|merge|rebase|tag)( |$)/,
+  /(^|\/)(deploy|publish|release|ship)([-_.\/]| |$)/i,
+  /\b(kubectl apply|kubectl delete|terraform apply|terraform destroy|docker push|gh release)\b/i,
+];
+
 export class PolicyEngine {
   constructor(
     readonly policy: Policy,
@@ -40,7 +52,13 @@ export class PolicyEngine {
 
   assertCommandAllowed(command: string, args: string[]): void {
     this.assertAllowed("test.run");
-    const display = [command, ...args].join(" ");
+    const display = [command, ...args].join(" ").trim();
+    if (intrinsicDeny.some((pattern) => pattern.test(display))) {
+      throw new PolicyError(`Validation command is intrinsically unsafe: ${display}`);
+    }
+    if ((this.policy.commands.deny ?? []).some((pattern) => new RegExp(pattern).test(display))) {
+      throw new PolicyError(`Validation command is denied by policy: ${display}`);
+    }
     const allowed = this.policy.commands.allow.some((pattern) => new RegExp(pattern).test(display));
     if (!allowed) {
       throw new PolicyError(`Validation command is outside policy allowlist: ${display}`);

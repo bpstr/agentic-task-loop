@@ -21,6 +21,15 @@ actions:
   jira.close: deny
 commands:
   allow:
-    - '^(npm|pnpm|yarn|bun) (test|run (test|lint|typecheck|build))( |$)'
-    - '^(pytest|cargo test|go test|dotnet test|composer test)( |$)'
+    - '^(npm|pnpm|yarn|bun) (--version|test|lint|check|typecheck|run (test|lint|check|typecheck|format(:check)?)([:A-Za-z0-9._-]*)?)( |$)'
+    - '^composer (--version|test|lint|check|analyse|analyze|phpstan|phpunit)( |$)'
+    - '^php (-v|--version|-l [A-Za-z0-9._/-]+|artisan (test|about))( |$)'
+    - '^python3? (-V|--version|-m (pytest|unittest|compileall))( |$)'
+    - '^pytest( |$)'
+    - '^cargo (test|check|clippy)( |$)'
+    - '^go (test|vet)( |$)'
+    - '^dotnet test( |$)'
+    - '^(mvn|mvnw|./mvnw) (test|verify)( |$)'
+    - '^(gradle|./gradlew) (test|check)( |$)'
+    - '^vendor/bin/(phpunit|phpstan|psalm|phpcs)( |$)'
     - '^git (diff --check|status --short)( |$)'

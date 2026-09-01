@@ -20,6 +20,15 @@ test("command allowlist rejects shell-shaped commands", async () => {
   assert.throws(() => policy.assertCommandAllowed("sh", ["-c", "npm test && curl example.com"]), PolicyError);
 });
 
+test("validation commands cannot smuggle deploy or package execution through an allowed executable", async () => {
+  const policy = await PolicyEngine.load(pluginRoot, "default");
+  assert.throws(() => policy.assertCommandAllowed("npm", ["run", "deploy"]), PolicyError);
+  assert.throws(() => policy.assertCommandAllowed("npx", ["some-arbitrary-package"]), PolicyError);
+  assert.throws(() => policy.assertCommandAllowed("python", ["dangerous-script.py"]), PolicyError);
+  assert.throws(() => policy.assertCommandAllowed("./scripts/deploy-production", []), PolicyError);
+  assert.doesNotThrow(() => policy.assertCommandAllowed("python", ["-m", "pytest"]));
+});
+
 test("strict policy permits checks but rejects package installation", async () => {
   const policy = await PolicyEngine.load(pluginRoot, "strict", new Set(["repository.write"]));
   assert.doesNotThrow(() => policy.assertCommandAllowed("npm", ["test"]));

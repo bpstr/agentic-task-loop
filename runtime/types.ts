@@ -39,7 +39,7 @@ export interface Policy {
   name: string;
   budgets: Budget;
   actions: Record<string, ActionDecision>;
-  commands: { allow: string[] };
+  commands: { allow: string[]; deny?: string[] };
 }
 
 export interface Task {
@@ -146,6 +146,17 @@ export interface FinalReport {
   jiraUpdate?: string;
 }
 
+export type RemediationCause =
+  | { type: "validation_failure"; artifact: "diagnosis.json" }
+  | { type: "review_findings"; artifact: "review.json" };
+
+export interface ActiveOperation {
+  id: string;
+  phase: "implementation" | "remediation";
+  startedAt: string;
+  baselineChangedFiles: string[];
+}
+
 export interface RunState {
   runId: string;
   taskId: string;
@@ -159,6 +170,8 @@ export interface RunState {
   checks: Record<string, CheckStatus>;
   review: { blocking: number; nonBlocking: number };
   budget: Budget;
+  remediationCause?: RemediationCause | undefined;
+  activeOperation?: ActiveOperation | undefined;
   blockedReason?: string;
   createdAt: string;
   updatedAt: string;
@@ -198,8 +211,10 @@ export interface CheckResult {
 export interface Capability {
   name: string;
   available: boolean;
-  source: "native" | "executable" | "environment" | "repository" | "configuration";
+  source: "native" | "executable" | "environment" | "repository" | "configuration" | "provider";
   detail?: string;
+  provider?: ProviderName;
+  kind?: "provider" | "mcp-server" | "repository" | "integration";
 }
 
 export interface CapabilityCommand {
@@ -207,6 +222,10 @@ export interface CapabilityCommand {
   args?: string[];
 }
 
+/**
+ * Legacy direct command adapters. Provider-native MCP servers are discovered
+ * automatically and do not need to be repeated here.
+ */
 export interface CapabilityConfig {
   jira?: CapabilityCommand;
   codebase?: CapabilityCommand;
