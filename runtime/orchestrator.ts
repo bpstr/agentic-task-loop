@@ -248,28 +248,29 @@ export class Orchestrator {
           }
           case "remediation": {
             this.policy.assertAllowed("repository.write");
-            if (!state.remediationCause) throw new Error("Remediation entered without an explicit cause");
+            const cause = state.remediationCause;
+            if (!cause) throw new Error("Remediation entered without an explicit cause");
             state = await this.beginOperation(state, "remediation");
             const plan = await this.store.readJson<Plan>(state.runId, "plan.json");
-            const diagnosis = state.remediationCause.type === "validation_failure"
-              ? await this.store.readJson<Diagnosis>(state.runId, state.remediationCause.artifact)
+            const diagnosis = cause.type === "validation_failure"
+              ? await this.store.readJson<Diagnosis>(state.runId, cause.artifact)
               : undefined;
-            const review = state.remediationCause.type === "review_findings"
-              ? await this.store.readJson<ReviewResult>(state.runId, state.remediationCause.artifact)
+            const review = cause.type === "review_findings"
+              ? await this.store.readJson<ReviewResult>(state.runId, cause.artifact)
               : undefined;
             const result = await this.callAgent<ImplementationResult>(state, "remediation-agent", "remediate", "implementation", {
               task,
               plan,
               diagnosis,
               review,
-              cause: state.remediationCause,
+              cause,
               iteration: state.iteration,
               reviewCycle: state.reviewCycle,
             });
             state.changedFiles = [...new Set([...state.changedFiles, ...result.changedFiles, ...await new NativeRepositoryIntegration(this.options.cwd).changedFiles()])];
             state.activeOperation = undefined;
             await this.store.writeJson(state.runId, `remediation-${state.iteration}-${state.reviewCycle}.json`, result);
-            state = await this.move(state, "REMEDIATED", { files: result.changedFiles, cause: state.remediationCause });
+            state = await this.move(state, "REMEDIATED", { files: result.changedFiles, cause });
             break;
           }
           case "deep_review": {
