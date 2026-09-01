@@ -2,6 +2,8 @@ export const phases = [
   "intake",
   "context",
   "investigation",
+  "clarification",
+  "awaiting_clarification",
   "plan",
   "plan_review",
   "implementation",
@@ -17,6 +19,7 @@ export const phases = [
 
 export type Phase = (typeof phases)[number];
 export type ProviderName = "codex" | "claude" | "mock";
+export type ClarificationMode = "auto" | "human";
 export type ActionDecision = "allow" | "allow_with_warning" | "approve" | "deny";
 export type CheckStatus = "pending" | "passed" | "failed" | "blocked";
 export type FailureClass =
@@ -62,6 +65,41 @@ export interface ContextPackage {
   unknowns: string[];
   risks: string[];
   sources: string[];
+}
+
+export type RequirementClarity = "clear" | "ambiguous" | "conflicting" | "missing";
+export type ClarificationIssueKind = "question" | "conflict" | "assumption" | "missing_information";
+export type ClarificationResolutionSource = "evidence" | "policy" | "human";
+
+export interface ClarificationRequirement {
+  id: string;
+  statement: string;
+  status: RequirementClarity;
+  evidence: string[];
+  issueIds: string[];
+}
+
+export interface ClarificationResolution {
+  value: string;
+  source: ClarificationResolutionSource;
+  rationale: string;
+  confidence: number;
+}
+
+export interface ClarificationIssue {
+  id: string;
+  kind: ClarificationIssueKind;
+  statement: string;
+  blocking: boolean;
+  evidence: string[];
+  options: string[];
+  resolution?: ClarificationResolution;
+}
+
+export interface ClarificationResult {
+  summary: string;
+  requirements: ClarificationRequirement[];
+  issues: ClarificationIssue[];
 }
 
 export interface CheckCommand {
@@ -162,6 +200,7 @@ export interface RunState {
   taskId: string;
   phase: Phase;
   provider: ProviderName;
+  clarificationMode?: ClarificationMode;
   iteration: number;
   reviewCycle: number;
   planRevision: number;
@@ -239,6 +278,8 @@ export interface RunOptions {
   policyName: string;
   approvals: Set<string>;
   resumeRunId?: string;
+  clarificationMode?: ClarificationMode;
+  clarificationAnswers?: Record<string, string>;
   dryRun: boolean;
   postJira: boolean;
 }
