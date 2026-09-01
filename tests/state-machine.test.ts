@@ -10,6 +10,7 @@ function initialState(): RunState {
     taskId: "TASK-1",
     phase: "intake",
     provider: "mock",
+    clarificationMode: "auto",
     iteration: 0,
     reviewCycle: 0,
     planRevision: 0,
@@ -23,14 +24,27 @@ function initialState(): RunState {
   };
 }
 
-test("happy path is deterministic", () => {
+test("happy path includes clarification before planning", () => {
   const machine = new StateMachine();
   const events: RunEvent[] = [
-    "TASK_READY", "CONTEXT_READY", "INVESTIGATION_READY", "PLAN_READY", "PLAN_APPROVED",
+    "TASK_READY", "CONTEXT_READY", "INVESTIGATION_READY", "CLARIFICATION_READY", "PLAN_READY", "PLAN_APPROVED",
     "IMPLEMENTED", "CHECKS_PASSED", "REVIEW_CLEAR", "VERIFIED", "FINALIZED",
   ];
   const state = events.reduce((current, event) => machine.transition(current, event), initialState());
   assert.equal(state.phase, "completed");
+});
+
+test("human clarification can pause and resume before planning", () => {
+  const machine = new StateMachine();
+  let state = initialState();
+  for (const event of ["TASK_READY", "CONTEXT_READY", "INVESTIGATION_READY", "CLARIFICATION_REQUIRED"] as RunEvent[]) {
+    state = machine.transition(state, event);
+  }
+  assert.equal(state.phase, "awaiting_clarification");
+  state = machine.transition(state, "CLARIFICATION_ANSWERS_RECEIVED");
+  assert.equal(state.phase, "clarification");
+  state = machine.transition(state, "CLARIFICATION_READY");
+  assert.equal(state.phase, "plan");
 });
 
 test("invalid event cannot skip a gate", () => {
@@ -40,7 +54,7 @@ test("invalid event cannot skip a gate", () => {
 test("implementation remediation budget blocks a run", () => {
   const machine = new StateMachine();
   let state = initialState();
-  for (const event of ["TASK_READY", "CONTEXT_READY", "INVESTIGATION_READY", "PLAN_READY", "PLAN_APPROVED", "IMPLEMENTED", "CHECKS_FAILED"] as RunEvent[]) {
+  for (const event of ["TASK_READY", "CONTEXT_READY", "INVESTIGATION_READY", "CLARIFICATION_READY", "PLAN_READY", "PLAN_APPROVED", "IMPLEMENTED", "CHECKS_FAILED"] as RunEvent[]) {
     state = machine.transition(state, event);
   }
   state.iteration = state.budget.maxImplementationIterations;
