@@ -9,6 +9,7 @@ import { PromptLoader } from "./prompt-loader.js";
 import { Scheduler } from "./scheduler.js";
 import { SchemaRegistry } from "./schema-registry.js";
 import { StateMachine, type RunEvent } from "./state-machine.js";
+import { WorktreeManager } from "./worktree-manager.js";
 import { createProvider } from "../providers/index.js";
 import { CodebaseIntegration } from "../integrations/codebase-mcp.js";
 import { DeepCodeReviewIntegration } from "../integrations/deep-code-review.js";
@@ -33,6 +34,7 @@ import type {
   RunState,
   Task,
   VerificationResult,
+  Workstream,
 } from "./types.js";
 
 export type ProgressReporter = (phase: string, message: string) => void;
@@ -115,16 +117,20 @@ export class Orchestrator {
   }
 
   async run(request = ""): Promise<{ state: RunState; report?: FinalReport }> {
-    await this.prepare();
+    await this.prepare(request);
     let state: RunState;
     let task: Task;
 
     if (this.options.resumeRunId) {
       state = await this.store.loadState(this.options.resumeRunId);
       task = await this.store.readJson<Task>(state.runId, "task.json");
+      if (state.provider !== this.provider.name && this.options.provider === "auto") {
+        this.provider = createProvider(state.provider);
+      }
       if (state.phase === "completed") {
         return { state, report: await this.store.readJson<FinalReport>(state.runId, "final-report.json") };
       }
+      state = await this.recoverInterruptedOperation(state);
     } else {
       task = await this.schemas.validate<Task>("task", taskFromRequest(request));
       const now = new Date().toISOString();
@@ -157,7 +163,11 @@ export class Orchestrator {
           case "context": {
             const resolved = await this.resolveTask(task);
             const native = await new NativeRepositoryIntegration(this.options.cwd).collect();
-            task = await this.callAgent<Task>(state, "requirements-analyst", "investigate", "task", { task: resolved, native, capabilities: this.capabilities });
+            task = await this.callAgent<Task>(state, "requirements-analyst", "investigate", "task", {
+              task: resolved,
+              native,
+              capabilities: this.agentCapabilities(),
+            });
             await this.store.writeJson(state.runId, "task.json", task);
             state.taskId = task.id;
             state = await this.move(state, "CONTEXT_READY", { sources: task.source });
@@ -165,7 +175,11 @@ export class Orchestrator {
           }
           case "investigation": {
             const evidence = await this.repositoryEvidence(task);
-            const context = await this.callAgent<ContextPackage>(state, "investigator", "investigate", "context", { task, evidence, capabilities: this.capabilities });
+            const context = await this.callAgent<ContextPackage>(state, "investigator", "investigate", "context", {
+              task,
+              evidence,
+              capabilities: this.agentCapabilities(),
+            });
             await this.store.writeContext(state.runId, context);
             state = await this.move(state, "INVESTIGATION_READY", { files: context.relevantFiles.length, symbols: context.relevantSymbols.length });
             break;
@@ -188,13 +202,14 @@ export class Orchestrator {
           }
           case "implementation": {
             this.policy.assertAllowed("repository.write");
+            state = await this.beginOperation(state, "implementation");
             const plan = await this.store.readJson<Plan>(state.runId, "plan.json");
             const schedule = this.scheduler.schedule(plan.workstreams);
             await log.append(state.phase, "SCHEDULED", schedule);
-            const workstreams = schedule.workstreams.length ? schedule.workstreams : [{ id: "implementation", files: [], stepIds: plan.steps.map((step) => step.id) }];
-            const results = schedule.mode === "parallel"
-              ? await Promise.all(workstreams.map((workstream) => this.callAgent<ImplementationResult>(state, "implementer", "implement", "implementation", { task, plan, workstream, ownership: workstream.files })))
-              : [await this.callAgent<ImplementationResult>(state, "implementer", "implement", "implementation", { task, plan, workstreams, ownership: workstreams.flatMap((item) => item.files) })];
+            const workstreams = schedule.workstreams.length
+              ? schedule.workstreams
+              : [{ id: "implementation", files: [], stepIds: plan.steps.map((step) => step.id) }];
+            const results = await this.implementWorkstreams(state, task, plan, workstreams, schedule.mode);
             const implementation = {
               summary: results.map((result) => result.summary).join("\n"),
               changedFiles: [...new Set([
@@ -204,6 +219,7 @@ export class Orchestrator {
               decisions: results.flatMap((result) => result.decisions),
             } satisfies ImplementationResult;
             state.changedFiles = implementation.changedFiles;
+            state.activeOperation = undefined;
             await this.store.writeJson(state.runId, "implementation.json", implementation);
             state = await this.move(state, "IMPLEMENTED", { files: implementation.changedFiles });
             break;
@@ -215,7 +231,10 @@ export class Orchestrator {
             await this.store.writeJson(state.runId, "test-results.json", results);
             state.checks = Object.fromEntries(results.map((result) => [result.name, result.status]));
             const failed = results.some((result) => result.status !== "passed");
-            state = await this.move(state, failed ? "CHECKS_FAILED" : "CHECKS_PASSED", { results: results.map(({ name, status, exitCode }) => ({ name, status, exitCode })) });
+            if (!failed) state.remediationCause = undefined;
+            state = await this.move(state, failed ? "CHECKS_FAILED" : "CHECKS_PASSED", {
+              results: results.map(({ name, status, exitCode }) => ({ name, status, exitCode })),
+            });
             break;
           }
           case "diagnosis": {
@@ -223,28 +242,50 @@ export class Orchestrator {
             const diagnosis = await this.callAgent<Diagnosis>(state, "test-diagnostician", "remediate", "diagnosis", { task, results, iteration: state.iteration });
             await this.store.writeJson(state.runId, "diagnosis.json", diagnosis);
             const remediable = diagnosis.remediable && !["ENVIRONMENT_FAILURE", "DEPENDENCY_FAILURE", "REQUIREMENT_AMBIGUITY", "ARCHITECTURAL_BLOCKER"].includes(diagnosis.class);
+            if (remediable) state.remediationCause = { type: "validation_failure", artifact: "diagnosis.json" };
             state = await this.move(state, remediable ? "DIAGNOSED_REMEDIABLE" : "DIAGNOSED_BLOCKED", diagnosis, diagnosis.evidence);
             break;
           }
           case "remediation": {
             this.policy.assertAllowed("repository.write");
+            if (!state.remediationCause) throw new Error("Remediation entered without an explicit cause");
+            state = await this.beginOperation(state, "remediation");
             const plan = await this.store.readJson<Plan>(state.runId, "plan.json");
-            const diagnosis = state.review.blocking === 0 ? await this.store.readJson<Diagnosis>(state.runId, "diagnosis.json") : undefined;
-            const review = state.review.blocking > 0 ? await this.store.readJson<ReviewResult>(state.runId, "review.json") : undefined;
-            const result = await this.callAgent<ImplementationResult>(state, "remediation-agent", "remediate", "implementation", { task, plan, diagnosis, review, iteration: state.iteration, reviewCycle: state.reviewCycle });
-            state.changedFiles = [...new Set([...state.changedFiles, ...result.changedFiles])];
+            const diagnosis = state.remediationCause.type === "validation_failure"
+              ? await this.store.readJson<Diagnosis>(state.runId, state.remediationCause.artifact)
+              : undefined;
+            const review = state.remediationCause.type === "review_findings"
+              ? await this.store.readJson<ReviewResult>(state.runId, state.remediationCause.artifact)
+              : undefined;
+            const result = await this.callAgent<ImplementationResult>(state, "remediation-agent", "remediate", "implementation", {
+              task,
+              plan,
+              diagnosis,
+              review,
+              cause: state.remediationCause,
+              iteration: state.iteration,
+              reviewCycle: state.reviewCycle,
+            });
+            state.changedFiles = [...new Set([...state.changedFiles, ...result.changedFiles, ...await new NativeRepositoryIntegration(this.options.cwd).changedFiles()])];
+            state.activeOperation = undefined;
             await this.store.writeJson(state.runId, `remediation-${state.iteration}-${state.reviewCycle}.json`, result);
-            state = await this.move(state, "REMEDIATED", { files: result.changedFiles });
+            state = await this.move(state, "REMEDIATED", { files: result.changedFiles, cause: state.remediationCause });
             break;
           }
           case "deep_review": {
             const rawReview = await this.externalReview();
-            const review = await this.callAgent<ReviewResult>(state, "review-evaluator", "verify", "finding", { task, changedFiles: state.changedFiles, externalReview: rawReview });
+            const review = await this.callAgent<ReviewResult>(state, "review-evaluator", "verify", "finding", {
+              task,
+              changedFiles: state.changedFiles,
+              externalReview: rawReview,
+            });
             await this.store.writeReview(state.runId, review);
             const p0 = review.findings.filter((finding) => finding.severity === "P0").length;
             const p1 = review.findings.filter((finding) => finding.severity === "P1").length;
             const p2 = review.findings.filter((finding) => finding.severity === "P2").length;
             state.review = { blocking: p0 + p1, nonBlocking: p2 };
+            if (p1 && !p0) state.remediationCause = { type: "review_findings", artifact: "review.json" };
+            if (!p0 && !p1) state.remediationCause = undefined;
             state = await this.move(state, p0 ? "REVIEW_P0" : p1 ? "REVIEW_P1" : "REVIEW_CLEAR", { p0, p1, p2 }, p0 ? "Deep review reported a P0 finding" : undefined);
             break;
           }
@@ -257,7 +298,10 @@ export class Orchestrator {
             ]);
             const verification = await this.callAgent<VerificationResult>(state, "final-verifier", "verify", "verification", { task, context, plan, results, review, state });
             await this.store.writeJson(state.runId, "verification.json", verification);
-            const verified = verification.taskSatisfied && verification.testsPassed && verification.blockingFindings === 0 && Object.values(verification.acceptanceCriteria).every((status) => status !== "unverified");
+            const verified = verification.taskSatisfied
+              && verification.testsPassed
+              && verification.blockingFindings === 0
+              && Object.values(verification.acceptanceCriteria).every((status) => status !== "unverified");
             state = await this.move(state, verified ? "VERIFIED" : "VERIFICATION_FAILED", verification, verification.summary);
             break;
           }
@@ -293,15 +337,13 @@ export class Orchestrator {
     return { state };
   }
 
-  private async prepare(): Promise<void> {
+  private async prepare(request = ""): Promise<void> {
     this.policy = await PolicyEngine.load(this.pluginRoot, this.options.policyName, this.options.approvals);
     const discovery = await new CapabilityDiscovery(this.options.cwd).discover();
     this.capabilities = discovery.capabilities;
     this.capabilityConfig = mergeCapabilityConfig(discovery.config);
     if (!this.provider) {
-      const selected = this.options.provider === "auto"
-        ? this.capabilities.find((capability) => capability.available && (capability.name === "codex" || capability.name === "claude"))?.name
-        : this.options.provider;
+      const selected = this.options.provider === "auto" ? this.selectAutoProvider(request) : this.options.provider;
       if (selected !== "codex" && selected !== "claude" && selected !== "mock") {
         throw new Error("No supported agent provider is available");
       }
@@ -309,13 +351,93 @@ export class Orchestrator {
     }
   }
 
-  private async callAgent<T>(state: RunState, role: string, skill: string, schema: string, input: unknown): Promise<T> {
+  private selectAutoProvider(request: string): ProviderName {
+    const available = (["codex", "claude"] as const).filter((provider) =>
+      this.capabilities.some((capability) => capability.name === provider && capability.available),
+    );
+    if (!available.length) throw new Error("No supported agent provider is available");
+    const externalReference = /\b[A-Z][A-Z0-9]+-\d+\b/.test(request);
+    return [...available].sort((left, right) => this.providerScore(right, externalReference) - this.providerScore(left, externalReference))[0] ?? available[0]!;
+  }
+
+  private providerScore(provider: ProviderName, externalReference: boolean): number {
+    const mcp = this.capabilities.filter((capability) => capability.provider === provider && capability.kind === "mcp-server" && capability.available);
+    const issueTracker = mcp.some((capability) => /jira|atlassian|linear|issue/i.test(capability.name));
+    return mcp.length + (externalReference && issueTracker ? 100 : 0);
+  }
+
+  private agentCapabilities(): Capability[] {
+    return this.capabilities.filter((capability) => !capability.provider || capability.provider === this.provider.name);
+  }
+
+  private async callAgent<T>(
+    state: RunState,
+    role: string,
+    skill: string,
+    schema: string,
+    input: unknown,
+    cwd = this.options.cwd,
+    artifactSuffix?: string,
+  ): Promise<T> {
     this.reserveToolCalls(state, 1);
     const prompt = await this.prompts.compose(role, skill, input);
     const writable = role === "implementer" || role === "remediation-agent";
-    const result = await this.provider.runAgent<T>({ role, phase: state.phase, prompt, schemaPath: this.schemas.schemaPath(schema), cwd: this.options.cwd, writable });
-    await this.store.writeText(state.runId, `${state.phase}-${role}.md`, result.raw);
+    const result = await this.provider.runAgent<T>({ role, phase: state.phase, prompt, schemaPath: this.schemas.schemaPath(schema), cwd, writable });
+    const suffix = artifactSuffix ? `-${artifactSuffix.replace(/[^A-Za-z0-9._-]/g, "-")}` : "";
+    await this.store.writeText(state.runId, `${state.phase}-${role}${suffix}.md`, result.raw);
     return this.schemas.validate<T>(schema, result.data);
+  }
+
+  private async implementWorkstreams(
+    state: RunState,
+    task: Task,
+    plan: Plan,
+    workstreams: Workstream[],
+    requestedMode: "single" | "parallel",
+  ): Promise<ImplementationResult[]> {
+    if (requestedMode !== "parallel") {
+      return [await this.callAgent<ImplementationResult>(state, "implementer", "implement", "implementation", {
+        task,
+        plan,
+        workstreams,
+        ownership: workstreams.flatMap((item) => item.files),
+      })];
+    }
+
+    const manager = new WorktreeManager(this.options.cwd, state.runId);
+    const isolation = await manager.canIsolate();
+    if (!isolation.allowed) {
+      await new EventLog(this.store.runDirectory(state.runId)).append(state.phase, "PARALLEL_FALLBACK", { reason: isolation.reason });
+      return [await this.callAgent<ImplementationResult>(state, "implementer", "implement", "implementation", {
+        task,
+        plan,
+        workstreams,
+        ownership: workstreams.flatMap((item) => item.files),
+        parallelFallback: isolation.reason,
+      })];
+    }
+
+    const workers = await Promise.all(workstreams.map((workstream) => manager.create(workstream)));
+    try {
+      const completed = await Promise.all(workers.map(async (worker) => {
+        const result = await this.callAgent<ImplementationResult>(state, "implementer", "implement", "implementation", {
+          task,
+          plan,
+          workstream: worker.workstream,
+          ownership: worker.workstream.files,
+        }, worker.cwd, worker.workstream.id);
+        const patch = await manager.collectPatch(worker);
+        return {
+          result: { ...result, changedFiles: patch.changedFiles },
+          patchPath: patch.patchPath,
+        };
+      }));
+      for (const item of completed) await manager.applyPatch(item.patchPath);
+      return completed.map((item) => item.result);
+    } finally {
+      for (const worker of workers) await manager.cleanup(worker);
+      await manager.cleanup();
+    }
   }
 
   private reserveToolCalls(state: RunState, count: number): void {
@@ -335,6 +457,36 @@ export class Orchestrator {
     return next;
   }
 
+  private async beginOperation(state: RunState, phase: "implementation" | "remediation"): Promise<RunState> {
+    const baselineChangedFiles = await new NativeRepositoryIntegration(this.options.cwd).changedFiles();
+    state.activeOperation = {
+      id: `${phase}-${randomUUID().slice(0, 8)}`,
+      phase,
+      startedAt: new Date().toISOString(),
+      baselineChangedFiles,
+    };
+    await this.store.saveState(state);
+    await new EventLog(this.store.runDirectory(state.runId)).append(phase, "OPERATION_STARTED", state.activeOperation);
+    return state;
+  }
+
+  private async recoverInterruptedOperation(state: RunState): Promise<RunState> {
+    if (!state.activeOperation) return state;
+    const current = await new NativeRepositoryIntegration(this.options.cwd).changedFiles();
+    const baseline = new Set(state.activeOperation.baselineChangedFiles);
+    const unexpected = current.filter((file) => !baseline.has(file));
+    if (unexpected.length) {
+      const reason = `Interrupted ${state.activeOperation.phase} operation left repository changes: ${unexpected.join(", ")}. Inspect or revert them before starting a new run.`;
+      const blocked = this.machine.block(state, reason);
+      await this.store.saveState(blocked);
+      return blocked;
+    }
+    await new EventLog(this.store.runDirectory(state.runId)).append(state.phase, "OPERATION_RECOVERED", { operation: state.activeOperation.id });
+    state.activeOperation = undefined;
+    await this.store.saveState(state);
+    return state;
+  }
+
   private async resolveTask(task: Task): Promise<Task> {
     if (task.source !== "jira" || !task.externalReference || !this.capabilityConfig.jira) return task;
     this.policy.assertAllowed("jira.read");
@@ -351,7 +503,8 @@ export class Orchestrator {
   }
 
   private async externalReview(): Promise<string | undefined> {
-    const configured = this.capabilityConfig.deepReview ?? (this.capabilities.find((capability) => capability.name === "deep-code-review" && capability.available) ? { command: "deep-review", args: ["--changes"] } : undefined);
+    const configured = this.capabilityConfig.deepReview
+      ?? (this.capabilities.find((capability) => capability.name === "deep-code-review" && capability.available) ? { command: "deep-review", args: ["--changes"] } : undefined);
     if (!configured) return undefined;
     this.policy.assertAllowed("review.run");
     return new DeepCodeReviewIntegration(configured, this.options.cwd).review();
