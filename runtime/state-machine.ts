@@ -4,6 +4,10 @@ export type RunEvent =
   | "TASK_READY"
   | "CONTEXT_READY"
   | "INVESTIGATION_READY"
+  | "CLARIFICATION_READY"
+  | "CLARIFICATION_REQUIRED"
+  | "CLARIFICATION_BLOCKED"
+  | "CLARIFICATION_ANSWERS_RECEIVED"
   | "PLAN_READY"
   | "PLAN_APPROVED"
   | "PLAN_REVISE"
@@ -23,7 +27,13 @@ export type RunEvent =
 const transitions: Record<Phase, Partial<Record<RunEvent, Phase>>> = {
   intake: { TASK_READY: "context" },
   context: { CONTEXT_READY: "investigation" },
-  investigation: { INVESTIGATION_READY: "plan" },
+  investigation: { INVESTIGATION_READY: "clarification" },
+  clarification: {
+    CLARIFICATION_READY: "plan",
+    CLARIFICATION_REQUIRED: "awaiting_clarification",
+    CLARIFICATION_BLOCKED: "blocked",
+  },
+  awaiting_clarification: { CLARIFICATION_ANSWERS_RECEIVED: "clarification" },
   plan: { PLAN_READY: "plan_review" },
   plan_review: { PLAN_APPROVED: "implementation", PLAN_REVISE: "plan" },
   implementation: { IMPLEMENTED: "validation" },

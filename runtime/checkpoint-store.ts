@@ -59,4 +59,13 @@ export class CheckpointStore {
   async readJson<T>(runId: string, filename: string): Promise<T> {
     return JSON.parse(await readFile(path.join(this.runDirectory(runId), filename), "utf8")) as T;
   }
+
+  async readJsonIfExists<T>(runId: string, filename: string): Promise<T | undefined> {
+    try {
+      return await this.readJson<T>(runId, filename);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw error;
+    }
+  }
 }

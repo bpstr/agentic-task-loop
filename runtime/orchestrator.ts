@@ -22,6 +22,7 @@ import type {
   CapabilityCommand,
   CapabilityConfig,
   CheckResult,
+  ClarificationResult,
   ContextPackage,
   Diagnosis,
   FinalReport,
@@ -116,7 +117,7 @@ export class Orchestrator {
     return { policy: this.policy.policy.name, provider: this.provider.name, capabilities: this.capabilities };
   }
 
-  async run(request = ""): Promise<{ state: RunState; report?: FinalReport }> {
+  async run(request = ""): Promise<{ state: RunState; report?: FinalReport; clarification?: ClarificationResult }> {
     await this.prepare(request);
     let state: RunState;
     let task: Task;
@@ -127,10 +128,20 @@ export class Orchestrator {
       if (state.provider !== this.provider.name && this.options.provider === "auto") {
         this.provider = createProvider(state.provider);
       }
+      if (!state.clarificationMode) state.clarificationMode = this.options.clarificationMode ?? "auto";
       if (state.phase === "completed") {
         return { state, report: await this.store.readJson<FinalReport>(state.runId, "final-report.json") };
       }
       state = await this.recoverInterruptedOperation(state);
+      if (state.phase === "awaiting_clarification") {
+        const supplied = this.options.clarificationAnswers ?? {};
+        if (Object.keys(supplied).length) {
+          const previousAnswers = await this.store.readJsonIfExists<Record<string, string>>(state.runId, "clarification-answers.json") ?? {};
+          const answers = { ...previousAnswers, ...supplied };
+          await this.store.writeJson(state.runId, "clarification-answers.json", answers);
+          state = await this.move(state, "CLARIFICATION_ANSWERS_RECEIVED", { answerIds: Object.keys(supplied) });
+        }
+      }
     } else {
       task = await this.schemas.validate<Task>("task", taskFromRequest(request));
       const now = new Date().toISOString();
@@ -139,6 +150,7 @@ export class Orchestrator {
         taskId: task.id,
         phase: "intake",
         provider: this.provider.name,
+        clarificationMode: this.options.clarificationMode ?? "auto",
         iteration: 0,
         reviewCycle: 0,
         planRevision: 0,
@@ -157,7 +169,7 @@ export class Orchestrator {
 
     const log = new EventLog(this.store.runDirectory(state.runId));
     try {
-      while (state.phase !== "completed" && state.phase !== "blocked") {
+      while (state.phase !== "completed" && state.phase !== "blocked" && state.phase !== "awaiting_clarification") {
         this.progress(state.phase, `Starting ${state.phase.replaceAll("_", " ")}`);
         switch (state.phase) {
           case "context": {
@@ -184,18 +196,56 @@ export class Orchestrator {
             state = await this.move(state, "INVESTIGATION_READY", { files: context.relevantFiles.length, symbols: context.relevantSymbols.length });
             break;
           }
-          case "plan": {
+          case "clarification": {
             const context = await this.store.readJson<ContextPackage>(state.runId, "context.json");
+            const previous = await this.store.readJsonIfExists<ClarificationResult>(state.runId, "clarification.json");
+            const answers = await this.store.readJsonIfExists<Record<string, string>>(state.runId, "clarification-answers.json") ?? {};
+            const mode = state.clarificationMode ?? "auto";
+            let clarification = await this.callAgent<ClarificationResult>(state, "clarifier", "clarify", "clarification", {
+              task,
+              context,
+              previous,
+              answers,
+              mode,
+              capabilities: this.agentCapabilities(),
+            });
+            clarification = this.applyHumanAnswers(clarification, answers);
+            await this.store.writeJson(state.runId, "clarification.json", clarification);
+            const unresolvedBlocking = clarification.issues.filter((issue) => issue.blocking && !issue.resolution);
+            if (!unresolvedBlocking.length) {
+              state = await this.move(state, "CLARIFICATION_READY", {
+                requirements: clarification.requirements.length,
+                issues: clarification.issues.length,
+                resolved: clarification.issues.filter((issue) => Boolean(issue.resolution)).length,
+              });
+            } else if (mode === "human") {
+              state = await this.move(state, "CLARIFICATION_REQUIRED", {
+                questions: unresolvedBlocking.map(({ id, kind, statement, options }) => ({ id, kind, statement, options })),
+              });
+            } else {
+              const reason = `Auto clarification could not resolve blocking issues: ${unresolvedBlocking.map((issue) => `${issue.id}: ${issue.statement}`).join("; ")}`;
+              state = await this.move(state, "CLARIFICATION_BLOCKED", { issues: unresolvedBlocking.map((issue) => issue.id) }, reason);
+            }
+            break;
+          }
+          case "plan": {
+            const [context, clarification] = await Promise.all([
+              this.store.readJson<ContextPackage>(state.runId, "context.json"),
+              this.store.readJson<ClarificationResult>(state.runId, "clarification.json"),
+            ]);
             const criticism = state.planRevision > 0 ? await this.store.readJson<PlanReview>(state.runId, "plan-review.json") : undefined;
-            const plan = await this.callAgent<Plan>(state, "planner", "plan", "plan", { task, context, criticism });
+            const plan = await this.callAgent<Plan>(state, "planner", "plan", "plan", { task, context, clarification, criticism });
             await this.store.writePlan(state.runId, plan);
             state = await this.move(state, "PLAN_READY", { steps: plan.steps.length, checks: plan.checks.length });
             break;
           }
           case "plan_review": {
-            const context = await this.store.readJson<ContextPackage>(state.runId, "context.json");
-            const plan = await this.store.readJson<Plan>(state.runId, "plan.json");
-            const review = await this.callAgent<PlanReview>(state, "plan-critic", "plan", "plan-review", { task, context, plan });
+            const [context, clarification, plan] = await Promise.all([
+              this.store.readJson<ContextPackage>(state.runId, "context.json"),
+              this.store.readJson<ClarificationResult>(state.runId, "clarification.json"),
+              this.store.readJson<Plan>(state.runId, "plan.json"),
+            ]);
+            const review = await this.callAgent<PlanReview>(state, "plan-critic", "plan", "plan-review", { task, context, clarification, plan });
             await this.store.writeJson(state.runId, "plan-review.json", review);
             state = await this.move(state, review.decision === "approve" ? "PLAN_APPROVED" : "PLAN_REVISE", review);
             break;
@@ -291,13 +341,22 @@ export class Orchestrator {
             break;
           }
           case "final_verification": {
-            const [context, plan, results, review] = await Promise.all([
+            const [context, clarification, plan, results, review] = await Promise.all([
               this.store.readJson<ContextPackage>(state.runId, "context.json"),
+              this.store.readJson<ClarificationResult>(state.runId, "clarification.json"),
               this.store.readJson<Plan>(state.runId, "plan.json"),
               this.store.readJson<CheckResult[]>(state.runId, "test-results.json"),
               this.store.readJson<ReviewResult>(state.runId, "review.json"),
             ]);
-            const verification = await this.callAgent<VerificationResult>(state, "final-verifier", "verify", "verification", { task, context, plan, results, review, state });
+            const verification = await this.callAgent<VerificationResult>(state, "final-verifier", "verify", "verification", {
+              task,
+              context,
+              clarification,
+              plan,
+              results,
+              review,
+              state,
+            });
             await this.store.writeJson(state.runId, "verification.json", verification);
             const verified = verification.taskSatisfied
               && verification.testsPassed
@@ -329,13 +388,14 @@ export class Orchestrator {
       await this.store.saveState(state);
     }
 
+    const clarification = await this.store.readJsonIfExists<ClarificationResult>(state.runId, "clarification.json");
     if (state.phase === "blocked") {
       const report = this.blockedReport(state);
       await this.store.writeJson(state.runId, "final-report.json", report);
       await this.store.writeText(state.runId, "final.md", reportMarkdown(report));
-      return { state, report };
+      return { state, report, ...(clarification ? { clarification } : {}) };
     }
-    return { state };
+    return { state, ...(clarification ? { clarification } : {}) };
   }
 
   private async prepare(request = ""): Promise<void> {
@@ -369,6 +429,29 @@ export class Orchestrator {
 
   private agentCapabilities(): Capability[] {
     return this.capabilities.filter((capability) => !capability.provider || capability.provider === this.provider.name);
+  }
+
+  private applyHumanAnswers(clarification: ClarificationResult, answers: Record<string, string>): ClarificationResult {
+    if (!Object.keys(answers).length) return clarification;
+    const issueIds = new Set(clarification.issues.map((issue) => issue.id));
+    const unknown = Object.keys(answers).filter((id) => !issueIds.has(id));
+    if (unknown.length) throw new Error(`Clarification answers reference unknown issue ids: ${unknown.join(", ")}`);
+    return {
+      ...clarification,
+      issues: clarification.issues.map((issue) => {
+        const answer = answers[issue.id]?.trim();
+        if (!answer) return issue;
+        return {
+          ...issue,
+          resolution: {
+            value: answer,
+            source: "human" as const,
+            rationale: "Explicit answer supplied while resuming the clarification gate.",
+            confidence: 1,
+          },
+        };
+      }),
+    };
   }
 
   private async callAgent<T>(
