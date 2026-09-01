@@ -7,8 +7,9 @@
   "properties": {
     "runId": { "type": "string", "pattern": "^ATL-[A-Za-z0-9-]+$" },
     "taskId": { "type": "string", "minLength": 1 },
-    "phase": { "enum": ["intake", "context", "investigation", "plan", "plan_review", "implementation", "validation", "diagnosis", "remediation", "deep_review", "final_verification", "finalize", "blocked", "completed"] },
+    "phase": { "enum": ["intake", "context", "investigation", "clarification", "awaiting_clarification", "plan", "plan_review", "implementation", "validation", "diagnosis", "remediation", "deep_review", "final_verification", "finalize", "blocked", "completed"] },
     "provider": { "enum": ["codex", "claude", "mock"] },
+    "clarificationMode": { "enum": ["auto", "human"] },
     "iteration": { "type": "integer", "minimum": 0 },
     "reviewCycle": { "type": "integer", "minimum": 0 },
     "planRevision": { "type": "integer", "minimum": 0 },
