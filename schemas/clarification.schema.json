@@ -40,9 +40,9 @@
             "required": ["value", "source", "rationale", "confidence"],
             "properties": {
               "value": { "type": "string", "minLength": 1 },
-              "source": { "enum": ["evidence", "policy", "human"] },
+              "source": { "enum": ["evidence", "policy"] },
               "rationale": { "type": "string", "minLength": 1 },
-              "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+              "confidence": { "type": "number", "minimum": 0.8, "maximum": 1 }
             }
           }
         }
