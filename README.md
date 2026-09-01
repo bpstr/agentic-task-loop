@@ -1,71 +1,186 @@
 # Agentic Task Loop
 
-Agentic Task Loop is a provider-neutral orchestration runtime for software-development agents. It runs Codex or Claude inside deterministic lifecycle stages, persists evidence after every gate, executes validation commands directly, enforces policy and retry budgets, and produces a resumable audit trail.
-
-It is packaged as a plugin containing related skills, which follows the current [OpenAI plugin architecture](https://learn.chatgpt.com/docs/build-plugins): plugins can bundle skills and connected capabilities, while individual skills remain focused reusable workflows.
+Agentic Task Loop is a provider-neutral orchestration runtime for autonomous software-development tasks. It runs Codex or Claude inside deterministic lifecycle stages, persists evidence after every gate, enforces policy and retry budgets, validates changes with real commands, isolates parallel workers, and produces a resumable audit trail.
 
 The central rule is:
 
-> The runtime decides what may happen next. The model reasons only inside the current stage.
+> The runtime decides what may happen next. The model reasons and uses tools only inside the current stage.
 
-This repository is an executable MVP, not only a prompt collection.
+This repository is an executable agent harness, not a prompt collection.
 
 ## Architecture
 
 ```text
-Task or Jira ticket
-        │
-        ▼
-┌───────────────────────────┐
-│ Deterministic orchestrator│
-│ state · policy · budgets  │
-└─────────────┬─────────────┘
-              │
-     ┌────────┼─────────┐
-     ▼        ▼         ▼
- Requirements  Repository  Capability
- analyst       investigator discovery
-     └────────┬─────────┘
-              ▼
-        Context package
-              ▼
-       Planner → critic
-              ▼
-       Approved workstreams
-              ▼
-     Implementer worker(s)
-              ▼
-   Deterministic checks ────────┐
-       │ pass       │ fail      │
-       ▼            ▼           │
-   Deep review   Diagnostician  │
-       │            ▼           │
-       │        Remediation ────┘
-       ▼
- P0 stop · P1 remediate · P2 record
-              ▼
-       Final verifier
-              ▼
-       Human handoff
-              ▼
-   Optional policy-gated Jira comment
+Task / ticket
+    │
+    ▼
+Capability discovery
+    │
+    ├── Codex + globally configured MCP servers
+    ├── Claude + globally configured MCP servers
+    └── native repository / optional runtime adapters
+    │
+    ▼
+Requirements analyst
+    ▼
+Repository + MCP investigation
+    ▼
+Planner → plan critic
+    ▼
+Approved workstreams
+    │
+    ├── worker A → isolated git worktree
+    ├── worker B → isolated git worktree
+    └── worker C → isolated git worktree
+    │
+    ▼
+Ownership check + patch integration
+    ▼
+Deterministic validation
+    │
+    ├── failed → diagnosis → remediation → validation
+    └── passed
+           ▼
+       deep review
+           │
+           ├── P0 → blocked
+           ├── P1 → remediation
+           └── clear / P2
+                  ▼
+            final verification
+                  ▼
+               finalize
 ```
 
 ## What is implemented
 
 | Component | Responsibility |
 | --- | --- |
-| State machine | Allows only explicit lifecycle transitions and prevents stage skipping |
-| Checkpoint store | Atomically persists run state and stage artifacts under `.agentic/runs/` |
-| Policy engine | Enforces action decisions, approvals, command allowlists, and iteration budgets |
-| Schema registry | Validates model output with JSON Schema Draft 2020-12 and Ajv |
-| Capability discovery | Detects providers, repository tools, Graphify state, Jira wrappers, and Deep Code Review |
-| Scheduler | Parallelizes implementation only when declared file ownership is disjoint |
-| Check runner | Executes command plus argument arrays without a shell and records exit evidence |
-| Provider adapters | Runs Codex or Claude non-interactively with structured output contracts |
-| Integration adapters | Supports command-backed Jira, codebase, Graphify, and Deep Code Review capabilities |
-| Skills and agent roles | Keep orchestration, investigation, planning, implementation, verification, remediation, and finalization separate |
-| Evals | Exercise success, environment-block, and review-remediation control paths |
+| State machine | Allows only explicit lifecycle transitions and bounded retry paths |
+| Checkpoint store | Persists run state and stage artifacts under `.agentic/runs/` |
+| Operation journal state | Detects interrupted writable stages before unsafe replay |
+| Policy engine | Enforces actions, approvals, safe validation commands, and budgets |
+| Schema registry | Validates model output with JSON Schema and Ajv |
+| Capability discovery | Finds providers and their already configured MCP servers automatically |
+| Scheduler | Parallelizes only declared disjoint workstreams |
+| Worktree manager | Gives parallel workers isolated Git worktrees and enforces actual file ownership |
+| Check runner | Executes deterministic validation without a shell |
+| Provider adapters | Runs Codex or Claude with structured output contracts |
+| Specialist agents | Separate requirements, investigation, planning, implementation, remediation, review, verification, and finalization |
+| Evals + tests | Exercise lifecycle paths, policy bypasses, capability parsing, resume, and worktree isolation |
+
+## Install
+
+```bash
+git clone https://github.com/bpstr/agentic-task-loop.git
+cd agentic-task-loop
+npm install
+npm run build
+npm link
+```
+
+Requirements:
+
+- Node.js 20+
+- Git
+- authenticated `codex` and/or `claude` CLI
+
+### Codex skill
+
+```bash
+mkdir -p ~/.codex/skills
+ln -s "$(pwd)/skills/agentic-task" ~/.codex/skills/agentic-task
+```
+
+### Claude Code plugin
+
+```bash
+claude plugin marketplace add bpstr/agentic-task-loop
+claude plugin install agentic-task-loop@agentic-task-loop
+```
+
+## Use
+
+```bash
+agentic-task "Implement notification preferences"
+agentic-task PROJ-142
+agentic-task --provider claude --policy strict "Fix checkout retries"
+agentic-task --provider codex --policy autonomous "Add audit logging"
+```
+
+Inspect what the runtime can use without starting a task:
+
+```bash
+agentic-task --dry-run --provider auto
+```
+
+Resume an interrupted run:
+
+```bash
+agentic-task --resume ATL-20260901-a1b2c3d4
+```
+
+From Codex:
+
+```text
+$agentic-task implement notification preferences
+```
+
+Claude Code can invoke the equivalent packaged skill.
+
+## MCP tools are inherited automatically
+
+You should not configure Jira, Atlassian, Linear, GitHub, documentation servers, code-intelligence MCPs, or other MCP servers a second time for Agentic Task Loop.
+
+The runtime discovers the tools already configured for the selected provider:
+
+### Codex
+
+Agentic Task Loop reads the normal Codex MCP configuration and also asks the Codex CLI for its configured servers.
+
+Typical sources:
+
+```text
+~/.codex/config.toml
+$CODEX_HOME/config.toml
+<repo>/.codex/config.toml
+codex mcp list
+```
+
+### Claude Code
+
+Agentic Task Loop discovers the user/project MCP configuration already available to Claude Code.
+
+Typical sources:
+
+```text
+~/.claude.json
+<repo>/.mcp.json
+claude mcp list
+```
+
+Discovered tools are attached to the matching provider as capabilities. The provider continues to own authentication, OAuth sessions, secrets, and the actual MCP connection. Agentic Task Loop does not copy credentials.
+
+For example, if Jira/Atlassian is already configured in Codex and the task is `PROJ-142`, the requirements analyst can use that MCP directly to read the authoritative ticket. No `.agentic/capabilities.json` entry is required.
+
+`--provider auto` also considers discovered tools. For ticket-like tasks it prefers an available provider that already exposes a matching issue-tracker MCP.
+
+### Optional runtime adapters
+
+`.agentic/capabilities.json` still exists, but it is an escape hatch for commands the deterministic runtime itself must invoke or for integrations that are not registered with the provider.
+
+```json
+{
+  "jira": { "command": "jira-mcp-client", "args": ["invoke"] },
+  "codebase": { "command": "codebase-client", "args": ["query"] },
+  "graphify": { "command": "graphify", "args": ["query", "--json"] },
+  "deepReview": { "command": "/path/to/deep-review.sh", "args": ["--changes"] }
+}
+```
+
+These adapters are optional compatibility hooks, not the normal MCP setup path.
+
+See [`skills/agentic-task/references/integrations.md`](skills/agentic-task/references/integrations.md) for the full capability and authority model.
 
 ## Deterministic lifecycle
 
@@ -79,30 +194,39 @@ INTAKE
   → VALIDATION
 ```
 
-Validation controls the next phase:
+Validation controls the next edge:
 
 ```text
-checks pass   → DEEP_REVIEW
-checks fail   → DIAGNOSIS
-remediable    → REMEDIATION → VALIDATION
-not remediable→ BLOCKED
+pass → DEEP_REVIEW
+fail → DIAGNOSIS
+       ├── remediable → REMEDIATION → VALIDATION
+       └── blocked    → BLOCKED
 ```
 
 Review controls the final gate:
 
 ```text
-P0 present → BLOCKED for human intervention
-P1 present → REMEDIATION → VALIDATION → DEEP_REVIEW
-P2 only    → FINAL_VERIFICATION
-clear      → FINAL_VERIFICATION
-verified   → FINALIZE → COMPLETED
+P0 → BLOCKED
+P1 → REMEDIATION → VALIDATION → DEEP_REVIEW
+P2 / clear → FINAL_VERIFICATION
+verified → FINALIZE → COMPLETED
 ```
 
-Invalid transitions throw instead of asking the model what to do next. Plan revisions, implementation remediation, review remediation, and provider/tool calls each have independent budgets.
+The model never chooses an arbitrary next lifecycle state.
 
-## Persistent execution state
+## Safe parallel workers
 
-Every run creates:
+The planner may declare independent workstreams. Parallel execution happens only when their declared file ownership is disjoint and the main checkout is clean.
+
+Each worker receives a disposable detached Git worktree. After the worker finishes, the runtime inspects the files it actually changed. If it touched anything outside its declared ownership, the workstream is rejected instead of being merged.
+
+Successful workstreams produce patches that are integrated back into the main checkout before whole-repository validation.
+
+If existing user changes are present, the runtime falls back to a single worker rather than silently creating clean worktrees that omit those edits.
+
+## Durable resume
+
+Every run creates a directory similar to:
 
 ```text
 .agentic/runs/ATL-<date>-<id>/
@@ -114,7 +238,7 @@ Every run creates:
 ├── implementation.json
 ├── test-results.json
 ├── diagnosis.json
-├── remediation-<iteration>-<review-cycle>.json
+├── remediation-*.json
 ├── review.json
 ├── verification.json
 ├── decisions.jsonl
@@ -122,161 +246,36 @@ Every run creates:
 └── final.md
 ```
 
-Artifacts appear only after their stage completes. `state.json` is the authoritative phase, counter, budget, check, and blocking state. `decisions.jsonl` records transition evidence. Resume starts from the persisted phase rather than replaying completed work.
+Completed phases are not replayed on resume.
 
-## Requirements
-
-- Node.js 20 or newer
-- Git
-- At least one authenticated provider CLI:
-  - `codex`
-  - `claude`
-
-Optional integrations require a local command wrapper or executable. The runtime itself does not require Jira, Graphify, codebase-mcp, or Deep Code Review.
-
-## Install for local development
-
-```bash
-git clone https://github.com/bpstr/agentic-task-loop.git
-cd agentic-task-loop
-npm install
-npm run build
-npm link
-```
-
-`npm link` makes the `agentic-task` CLI available locally.
-
-### Codex skill
-
-Link the user-facing orchestration skill into the local skills directory:
-
-```bash
-mkdir -p ~/.codex/skills
-ln -s "$(pwd)/skills/agentic-task" ~/.codex/skills/agentic-task
-```
-
-The distributable plugin manifest is [.codex-plugin/plugin.json](.codex-plugin/plugin.json). It exposes all packaged skills under `skills/`.
-
-### Claude Code plugin
-
-```bash
-claude plugin marketplace add bpstr/agentic-task-loop
-claude plugin install agentic-task-loop@agentic-task-loop
-```
-
-During local development, pass the checkout path to `claude plugin marketplace add` instead of the GitHub slug.
-
-## Use
-
-Run a plain development task:
-
-```bash
-agentic-task "Implement notification preferences"
-```
-
-Resolve a Jira-style reference when Jira is configured:
-
-```bash
-agentic-task PROJ-142
-```
-
-Choose a provider or policy:
-
-```bash
-agentic-task --provider claude --policy strict "Fix checkout retries"
-agentic-task --provider codex --policy autonomous "Add audit logging"
-```
-
-Inspect capabilities without starting a run:
-
-```bash
-agentic-task --dry-run --provider auto
-```
-
-Resume after interruption:
-
-```bash
-agentic-task --resume ATL-20260901-a1b2c3d4
-```
-
-From Codex, the orchestration skill remains a simple entrypoint:
-
-```text
-$agentic-task implement notification preferences
-```
-
-Claude Code can invoke the equivalent `/agentic-task` skill.
+Writable implementation/remediation stages additionally persist an active-operation marker before edits start. If a process dies after changing the repository but before completing the stage, resume compares the current working tree with the recorded baseline. Unexpected changes block the run for inspection instead of blindly invoking the writer again.
 
 ## Policies and authority
 
-Three policies ship with the runtime:
+Three policy profiles ship with the runtime:
 
-| Policy | Implementation cycles | Review cycles | Character |
-| --- | ---: | ---: | --- |
-| `strict` | 2 | 1 | Repository writes require approval; dependency installation is denied |
-| `default` | 4 | 2 | Normal edits and tests allowed; external writes and Git mutations require approval |
-| `autonomous` | 6 | 2 | Wider local iteration budget; external writes and Git mutations still require approval |
+| Policy | Character |
+| --- | --- |
+| `strict` | Minimal mutation, repository writes require approval, dependency installation denied |
+| `default` | Normal local edits/checks, external and Git mutations require explicit authority |
+| `autonomous` | Larger local retry budget while deployment/external authority remains bounded |
 
-Every action resolves to one of four decisions:
-
-- `allow`: execute;
-- `allow_with_warning`: permit the action while returning a warning decision to the caller;
-- `approve`: require `--approve <action>`;
-- `deny`: stop regardless of model output.
-
-Example:
-
-```bash
-agentic-task \
-  --policy default \
-  --post-jira \
-  --approve jira.comment \
-  PROJ-142
-```
-
-Jira posting requires both `--post-jira` and policy authorization. Closing tickets, transitions, commits, pushes, deployments, and production shells are separate policy actions and are never implied.
-
-## Capability discovery
-
-Create `.agentic/capabilities.json` in the target repository to connect command-backed integrations:
-
-```json
-{
-  "jira": {
-    "command": "jira-mcp-client",
-    "args": ["invoke"]
-  },
-  "codebase": {
-    "command": "codebase-client",
-    "args": ["query"]
-  },
-  "graphify": {
-    "command": "graphify",
-    "args": ["query", "--json"]
-  },
-  "deepReview": {
-    "command": "/absolute/path/to/deep-review.sh",
-    "args": ["--changes"]
-  }
-}
-```
-
-Commands receive a final JSON argument describing the requested operation. Jira, codebase, and Graphify wrappers must return JSON. Deep Code Review may return text; the review evaluator normalizes and verifies its findings.
-
-Environment fallbacks are also supported:
+Actions resolve to:
 
 ```text
-JIRA_MCP_COMMAND
-CODEBASE_MCP_COMMAND
-GRAPHIFY_COMMAND
-DEEP_REVIEW_COMMAND
+allow
+allow_with_warning
+approve
+deny
 ```
 
-Without configured graph integrations, investigation uses repository-native tools through the selected provider. Without Deep Code Review, the review evaluator performs a change-scoped review directly.
+Discovery does **not** imply authority. Finding a Jira MCP does not grant permission to comment, transition, or close a ticket. Finding GitHub does not grant permission to push. Deployments remain independently denied unless a policy explicitly permits them.
 
-## Providers
+Validation commands are intentionally narrower than arbitrary executable access. Test/check/build-shaped commands are allowed according to policy; package execution, deployment/release scripts, pushes, destructive infrastructure commands, and similar policy bypasses are rejected even when their parent executable would otherwise be familiar.
 
-Both providers implement the same runtime interface:
+## Provider model
+
+Both providers implement the same runtime contract:
 
 ```ts
 interface AgentProvider {
@@ -285,147 +284,44 @@ interface AgentProvider {
 }
 ```
 
-The Codex adapter uses `codex exec`, ephemeral sessions, a read-only or workspace-write sandbox, and `--output-schema`. The Claude adapter uses non-interactive print mode, plan or edit permissions, and `--json-schema`. The runtime validates both providers' output again with Ajv before accepting evidence or transitioning.
+Codex and Claude receive schema-bound stage prompts. The runtime validates provider output again before accepting an artifact or moving the state machine.
 
-`--provider auto` prefers Codex when both executables are available, then falls back to Claude.
+Provider-native MCP servers remain available through the provider's own global/project configuration, so the agent can use its existing tool ecosystem without Agentic Task Loop recreating it.
 
-## Skills and reasoning roles
-
-The plugin packages focused stage skills:
-
-```text
-skills/
-├── agentic-task/  user-facing runtime entrypoint
-├── investigate/   context construction
-├── plan/          planning and plan criticism
-├── implement/     owned workstream execution
-├── verify/        review and final verification
-├── remediate/     failure classification and correction
-└── finalize/      human handoff
-```
-
-Stage skills are explicit-only and are loaded by the runtime. Specialized role prompts add the narrower responsibility for investigator, requirements analyst, planner, plan critic, implementer, test diagnostician, remediation agent, review evaluator, final verifier, and finalizer.
-
-The skill is the reusable behavior contract. The role prompt is the specialist overlay. The runtime combines both with untrusted JSON input and a required output schema.
-
-## Structured evidence
-
-The main schemas cover:
-
-- normalized task;
-- context package;
-- implementation plan and workstream ownership;
-- P0/P1/P2 findings;
-- diagnosis class and confidence;
-- implementation evidence;
-- final verification;
-- durable run state;
-- human handoff.
-
-Validation commands are represented as:
-
-```json
-{
-  "name": "unit tests",
-  "command": "npm",
-  "args": ["test"]
-}
-```
-
-They execute with `shell: false`. The policy allowlist checks the complete display command before execution. Model prose cannot turn a failed exit code into a pass.
-
-## Failure classification
-
-The diagnostician must choose one class:
-
-```text
-IMPLEMENTATION_DEFECT
-TEST_DEFECT
-ENVIRONMENT_FAILURE
-DEPENDENCY_FAILURE
-FLAKY_TEST
-REQUIREMENT_AMBIGUITY
-ARCHITECTURAL_BLOCKER
-```
-
-Only evidence-backed implementation, test, or flaky-test failures enter automatic remediation. Environment, dependency, ambiguity, and architecture failures block rather than encouraging unrelated code changes.
-
-## Deep Code Review
-
-[Deep Code Review](https://github.com/bpstr/deep-code-review) is an optional evaluator stage after deterministic checks pass. Its P0/P1/P2 output feeds runtime policy:
-
-- P0 blocks for human intervention;
-- P1 enters a bounded remediation cycle;
-- P2 is retained for human review;
-- remediation reruns validation and then review;
-- `maxReviewCycles` prevents an infinite loop.
-
-## Tests and evals
-
-Run the full local check:
-
-```bash
-npm run check
-```
-
-Or run components separately:
+## Development
 
 ```bash
 npm run build
 npm test
 npm run eval
+npm run check
 ```
 
-The current automated suite covers:
+`npm run check` runs the complete test and eval suite. GitHub Actions runs it for pushes and pull requests.
 
-- happy-path lifecycle completion;
-- invalid-transition rejection;
-- remediation budget exhaustion;
-- policy approvals and command allowlists;
-- disjoint-workstream scheduling;
-- JSON Schema validation;
-- an end-to-end durable run with a deterministic mock provider;
-- resume from a persisted mid-run phase without replaying completed stages.
+Key regression coverage includes:
 
-The eval fixtures exercise three state-machine scenarios: simple completion, environment failure, and review remediation. They prove control-flow invariants only; they are not yet evidence of model-quality improvement. Add repository-backed task fixtures before publishing comparative completion-rate claims.
+- deterministic transitions and retry limits;
+- durable phase resume;
+- command-policy bypass attempts;
+- provider MCP discovery parsing;
+- parallel worktree isolation;
+- actual changed-file ownership enforcement.
 
-## Repository structure
+## Design principle
+
+The project deliberately separates **agent reasoning** from **runtime authority**:
 
 ```text
-agentic-task-loop/
-├── .codex-plugin/       Codex manifest
-├── .claude-plugin/      Claude manifest and marketplace
-├── agents/              specialist role prompts
-├── bin/                 CLI entrypoint
-├── evals/               deterministic fixtures and runner
-├── integrations/        optional capability adapters
-├── policies/            strict, default, and autonomous authority profiles
-├── providers/           Codex, Claude, and mock adapters
-├── runtime/             state machine, orchestration, policy, storage, scheduler
-├── schemas/             structured evidence contracts
-├── skills/              orchestration and stage skills
-└── tests/               deterministic unit and integration tests
+LLM / MCP tools
+    ↓
+bounded stage
+    ↓
+schema artifact
+    ↓
+deterministic runtime gate
+    ↓
+next stage
 ```
 
-## Security and operational boundaries
-
-- Repository, ticket, review, and provider output is treated as untrusted data.
-- Read-only stages use provider read-only or plan modes.
-- Implementation stages use workspace-scoped edit modes.
-- Validation commands execute without a shell.
-- External writes require distinct flags and policy authorization.
-- State paths and policy names are validated before filesystem access.
-- Provider subprocesses inherit the local environment; run them only in repositories you trust.
-- `.agentic/` is ignored by Git because it may contain ticket context and detailed execution evidence.
-
-## Current limitations
-
-- MCP integrations use explicit local command wrappers; the runtime does not yet implement a general MCP transport client.
-- Runtime policy directly governs orchestrator-owned actions; tool calls made inside a provider process remain governed by that provider's sandbox and permission system.
-- Workstream isolation is planned and prompted, but the runtime does not yet reject an agent process that edits outside its declared ownership.
-- The event log is local JSONL rather than OpenTelemetry.
-- Evals currently verify orchestration behavior, not comparative coding quality, cost, or token usage.
-- Provider adapters require locally authenticated CLIs and may incur model usage.
-- Resume assumes the target repository and provider environment remain compatible with the saved run.
-
-These are deliberate boundaries for the executable MVP and the next concrete areas for hardening.
+Agents can investigate deeply, use the tools already available to them, write code in authorized stages, diagnose failures, and review changes. They cannot redefine the workflow, silently expand authority, convert failed checks into passes, or bypass policy by emitting prose.
