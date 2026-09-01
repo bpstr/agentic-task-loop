@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-task-loop.local/schemas/clarification.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "requirements", "issues"],
+  "properties": {
+    "summary": { "type": "string", "minLength": 1 },
+    "requirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "statement", "status", "evidence", "issueIds"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "statement": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["clear", "ambiguous", "conflicting", "missing"] },
+          "evidence": { "type": "array", "items": { "type": "string" } },
+          "issueIds": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "statement", "blocking", "evidence", "options"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "kind": { "enum": ["question", "conflict", "assumption", "missing_information"] },
+          "statement": { "type": "string", "minLength": 1 },
+          "blocking": { "type": "boolean" },
+          "evidence": { "type": "array", "items": { "type": "string" } },
+          "options": { "type": "array", "items": { "type": "string" } },
+          "resolution": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["value", "source", "rationale", "confidence"],
+            "properties": {
+              "value": { "type": "string", "minLength": 1 },
+              "source": { "enum": ["evidence", "policy", "human"] },
+              "rationale": { "type": "string", "minLength": 1 },
+              "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+            }
+          }
+        }
+      }
+    }
+  }
+}
