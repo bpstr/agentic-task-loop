@@ -54,8 +54,9 @@ export function parseCodexMcpConfig(content: string): string[] {
   const names: string[] = [];
   for (let index = 0; index < matches.length; index += 1) {
     const match = matches[index];
-    const name = match?.[1] ?? match?.[2] ?? match?.[3];
-    if (!name || match.index === undefined) continue;
+    if (!match || match.index === undefined) continue;
+    const name = match[1] ?? match[2] ?? match[3];
+    if (!name) continue;
     const start = match.index + match[0].length;
     const end = matches[index + 1]?.index ?? content.length;
     const body = content.slice(start, end);
